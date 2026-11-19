@@ -14,7 +14,7 @@ const STOCK_JOIN = `
 
 const SELECT = `
   p.id, p.sku, p.name, p.generic_name AS genericName, p.strength, p.dosage_form AS dosageForm, p.pack_size AS packSize,
-  p.category, p.manufacturer, p.unit_price AS unitPrice, p.unit_cost AS unitCost,
+  p.category, p.manufacturer, p.unit_price AS unitPrice, p.unit_cost AS unitCost, p.image_url AS imageUrl,
   p.reorder_point AS reorderPoint, p.requires_prescription AS requiresPrescription, p.is_active AS isActive,
   COALESCE(s.sellable, 0) AS sellableStock, COALESCE(s.onHand, 0) AS onHand, s.nextExpiry,
   DATEDIFF(s.nextExpiry, CURDATE()) AS nextExpiryDays`;
@@ -45,12 +45,27 @@ async function findById(id) {
   return shape(row);
 }
 
+// Multipart forms send everything as text, so "false" must not count as true
+const toBool = (v) => v === true || v === 1 || v === '1' || v === 'true';
+const orNull = (v) => (v === undefined || v === null || v === '' ? null : v);
+
 async function create(d) {
   const [res] = await pool.query(
-    `INSERT INTO products (sku, name, generic_name, strength, dosage_form, pack_size, category, manufacturer, unit_price, unit_cost, reorder_point, requires_prescription)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [d.sku, d.name, d.genericName || null, d.strength || null, d.dosageForm || null, d.packSize || null, d.category || null,
-     d.manufacturer || null, d.unitPrice, d.unitCost, d.reorderPoint || 0, d.requiresPrescription ? 1 : 0]
+    `INSERT INTO products (sku, name, generic_name, strength, dosage_form, pack_size, category, manufacturer, unit_price, unit_cost, image_url, reorder_point, requires_prescription)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [d.sku,
+     d.name,
+     orNull(d.genericName),
+     orNull(d.strength),
+     orNull(d.dosageForm),
+     orNull(d.packSize),
+     orNull(d.category),
+     orNull(d.manufacturer),
+     Number(d.unitPrice),
+     orNull(d.unitCost) === null ? null : Number(d.unitCost),
+     d.imageUrl || null,
+     Number(d.reorderPoint) || 0,
+     toBool(d.requiresPrescription) ? 1 : 0]
   );
   return res.insertId;
 }
@@ -71,6 +86,8 @@ async function update(id, data) {
   if (!sets.length) throw new ApiError(422, 'Nothing to update');
   await pool.query(`UPDATE products SET ${sets.join(', ')} WHERE id = ?`, [...params, id]);
 }
+
+const setImage = (id, url) => pool.query('UPDATE products SET image_url = ? WHERE id = ?', [url, id]);
 
 const deactivate = (id) => pool.query('UPDATE products SET is_active = 0 WHERE id = ?', [id]);
 
@@ -109,4 +126,4 @@ async function expiring(days = 60, limit = 50) {
   return rows;
 }
 
-module.exports = { list, findById, create, update, deactivate, listBatches, addBatch, lowStock, expiring, withTransaction };
+module.exports = { list, findById, create, update, setImage, deactivate, listBatches, addBatch, lowStock, expiring, withTransaction };
