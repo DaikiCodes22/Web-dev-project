@@ -11,7 +11,6 @@ router.post('/', permitUpload.single('permit'), ctrl.create);
 router.get('/:id', ctrl.get);
 router.put('/:id', ctrl.update);
 router.patch('/:id/status', ctrl.updateStatus);
-router.patch('/:id/terms', ctrl.updateTerms);
 router.post('/:id/document', permitUpload.single('permit'), ctrl.uploadDocument);
 router.get('/:id/document', ctrl.downloadDocument);
 

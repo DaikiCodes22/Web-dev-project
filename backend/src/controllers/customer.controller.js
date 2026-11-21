@@ -6,15 +6,14 @@ const asyncHandler = require('../utils/asyncHandler');
 const { UPLOAD_DIR } = require('../middleware/upload.middleware');
 const { required, oneOf, pagination, isFutureDate } = require('../utils/validate');
 
-const TERMS = ['COD', 'BANK', 'EWALLET'];
 const TYPES = ['independent', 'chain', 'hospital'];
 
 const removeFile = (file) => file && fs.unlink(file.path, () => {});
 
 exports.list = asyncHandler(async (req, res) => {
   const { page, limit, offset } = pagination(req.query);
-  const { q, paymentTerms, status } = req.query;
-  const { rows, total, summary } = await Customer.list({ q, paymentTerms, status, limit, offset });
+  const { q, status } = req.query;
+  const { rows, total, summary } = await Customer.list({ q, status, limit, offset });
   res.json({ data: rows, meta: { page, limit, total, ...summary } });
 });
 
@@ -35,13 +34,10 @@ exports.create = asyncHandler(async (req, res) => {
   try {
     required(b, ['name', 'tin', 'streetAddress', 'city', 'postalCode', 'contactName', 'contactEmail', 'contactPhone', 'licenseNumber', 'licenseExpiry']);
     oneOf(b.storeType || 'independent', TYPES, 'storeType');
-    if (b.paymentTerms) oneOf(b.paymentTerms, TERMS, 'paymentTerms');
     if (!isFutureDate(b.licenseExpiry)) throw new ApiError(422, 'License expiry date must be in the future');
-    const creditLimit = Number(b.creditLimit || 0);
-    if (!(creditLimit >= 0)) throw new ApiError(422, 'Credit limit must be zero or more');
 
     const id = await Customer.create({
-      ...b, storeType: b.storeType || 'independent', creditLimit, documentPath: req.file ? req.file.filename : null,
+      ...b, storeType: b.storeType || 'independent', documentPath: req.file ? req.file.filename : null,
     });
     res.status(201).json(await Customer.findById(id));
   } catch (err) {
@@ -52,9 +48,7 @@ exports.create = asyncHandler(async (req, res) => {
 
 exports.update = asyncHandler(async (req, res) => {
   const b = req.body;
-  if (b.paymentTerms) oneOf(b.paymentTerms, TERMS, 'paymentTerms');
   if (b.storeType) oneOf(b.storeType, TYPES, 'storeType');
-  if (b.creditLimit !== undefined && !(Number(b.creditLimit) >= 0)) throw new ApiError(422, 'Credit limit must be zero or more');
   if (!(await Customer.findById(req.params.id))) throw new ApiError(404, 'Pharmacy not found');
   await Customer.update(req.params.id, b);
   res.json(await Customer.findById(req.params.id));
@@ -79,15 +73,6 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 
   await Customer.setStatus(customer.id, ACTIONS[action], { adminId: req.user.id, reason });
   res.json(await Customer.findById(customer.id));
-});
-
-exports.updateTerms = asyncHandler(async (req, res) => {
-  const { paymentTerms, creditLimit } = req.body;
-  if (paymentTerms) oneOf(paymentTerms, TERMS, 'paymentTerms');
-  if (creditLimit !== undefined && !(Number(creditLimit) >= 0)) throw new ApiError(422, 'Credit limit must be zero or more');
-  if (!(await Customer.findById(req.params.id))) throw new ApiError(404, 'Pharmacy not found');
-  await Customer.update(req.params.id, { paymentTerms, creditLimit });
-  res.json(await Customer.findById(req.params.id));
 });
 
 exports.uploadDocument = asyncHandler(async (req, res) => {

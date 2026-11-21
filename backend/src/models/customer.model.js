@@ -8,19 +8,18 @@ const SELECT = `
   p.license_type AS licenseType, p.license_number AS licenseNumber, p.license_expiry AS licenseExpiry,
   DATEDIFF(p.license_expiry, CURDATE()) AS licenseDaysLeft,
   (p.license_document_path IS NOT NULL) AS hasDocument,
-  p.payment_terms AS paymentTerms, p.credit_limit AS creditLimit, p.current_balance AS currentBalance,
+  p.current_balance AS currentBalance,
   p.status, p.rejection_reason AS rejectionReason, p.verified_at AS verifiedAt, p.created_at AS createdAt`;
 
 const shape = (r) => r && { ...r, hasDocument: !!r.hasDocument };
 
-async function list({ q, paymentTerms, status, limit, offset }) {
+async function list({ q, status, limit, offset }) {
   const where = [];
   const params = [];
   if (q) {
     where.push('(p.name LIKE ? OR p.tin LIKE ? OR p.license_number LIKE ?)');
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
-  if (paymentTerms) { where.push('p.payment_terms = ?'); params.push(paymentTerms); }
   if (status) { where.push('p.status = ?'); params.push(status); }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -48,9 +47,11 @@ const findByOwner = async (userId) => {
 async function create(d, conn = pool) {
   const [res] = await conn.query(
     `INSERT INTO pharmacies
-      (owner_user_id, name, store_type, tin, street_address, city, postal_code, contact_name, contact_email, contact_phone,
-       license_type, license_number, license_expiry, license_document_path, payment_terms, credit_limit, status)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      (
+       owner_user_id, name, store_type, tin, street_address, city,
+       postal_code, contact_name, contact_email, contact_phone, license_type, license_number,
+       license_expiry, license_document_path, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [d.ownerUserId || null, 
      d.name,
      d.storeType, 
@@ -64,9 +65,7 @@ async function create(d, conn = pool) {
      d.licenseType || 'LTO', 
      d.licenseNumber, 
      d.licenseExpiry, 
-     d.documentPath || null,
-     d.paymentTerms || 'COD', 
-     d.creditLimit || 0, 
+     d.documentPath || null, 
      'pending']
   );
   return res.insertId;
@@ -75,7 +74,7 @@ async function create(d, conn = pool) {
 const FIELD_MAP = {
   name: 'name', storeType: 'store_type', tin: 'tin', streetAddress: 'street_address', city: 'city', postalCode: 'postal_code',
   contactName: 'contact_name', contactEmail: 'contact_email', contactPhone: 'contact_phone', licenseType: 'license_type',
-  licenseNumber: 'license_number', licenseExpiry: 'license_expiry', paymentTerms: 'payment_terms', creditLimit: 'credit_limit',
+  licenseNumber: 'license_number', licenseExpiry: 'license_expiry',
 };
 
 /** Partial update – only whitelisted columns are touched */

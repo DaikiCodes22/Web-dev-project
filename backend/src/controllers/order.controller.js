@@ -4,16 +4,19 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { oneOf, pagination, positiveInt } = require('../utils/validate');
 
+const { PAYMENT_METHODS } = require('../utils/pricing');
+
 const STATUSES = ['pending_approval', 'batching', 'in_transit', 'delivered', 'cancelled'];
 const isOwner = (u) => u.role === 'pharmacy_owner';
 
 exports.create = asyncHandler(async (req, res) => {
   const pharmacy = await Customer.findByOwner(req.user.id);
   if (!pharmacy) throw new ApiError(404, 'No pharmacy is linked to this login');
-  const { items, notes } = req.body;
+  const { items, notes, paymentMethod } = req.body;
   if (!Array.isArray(items) || !items.length) throw new ApiError(422, 'Your cart is empty');
+  if (!PAYMENT_METHODS.includes(paymentMethod)) throw new ApiError(422, 'Choose how you will pay: cash on delivery, online / bank transfer or e-wallet');
   const clean = items.map((i) => ({ productId: positiveInt(i.productId, 'productId'), quantity: positiveInt(i.quantity, 'quantity') }));
-  const id = await Order.create({ pharmacyId: pharmacy.id, userId: req.user.id, items: clean, notes });
+  const id = await Order.create({ pharmacyId: pharmacy.id, userId: req.user.id, items: clean, paymentMethod, notes });
   res.status(201).json(await Order.findById(id));
 });
 

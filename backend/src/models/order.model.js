@@ -4,14 +4,15 @@ const ApiError = require('../utils/ApiError');
 const { TERMS_DAYS, MIN_SHELF_LIFE_DAYS, round2 } = require('../utils/pricing');
 
 const PAYMENT_SQL = `
-  CASE WHEN i.id IS NULL THEN 'unbilled' WHEN i.status = 'paid' THEN 'paid'
-       WHEN i.due_date < CURDATE() THEN 'overdue' ELSE 'unpaid' END AS paymentStatus,
+  CASE WHEN i.id IS NULL THEN 'unbilled' WHEN i.status = 'void' THEN 'void' WHEN i.status = 'paid' THEN 'paid'
+       WHEN i.due_date < CURDATE() THEN 'overdue' WHEN i.status = 'partial' THEN 'partial' ELSE 'unpaid' END AS paymentStatus,
   DATEDIFF(CURDATE(), i.due_date) AS daysOverdue, DATEDIFF(i.due_date, CURDATE()) AS daysUntilDue, i.due_date AS dueDate,
+  i.amount AS invoiceAmount, i.amount_paid AS amountPaid, i.amount - i.amount_paid AS amountDue,
   i.invoice_no AS invoiceNo`;
 
 const SELECT = `
   o.id, o.order_no AS orderNo, o.pharmacy_id AS pharmacyId, ph.name AS pharmacyName, o.status,
-  o.payment_terms AS paymentTerms, o.payment_status AS paymentStatusField, o.subtotal, o.total, o.notes,
+  o.payment_method AS paymentMethod, o.payment_status AS paymentStatusField, o.subtotal, o.total, o.notes,
   o.created_at AS createdAt, o.approved_at AS approvedAt, o.shipped_at AS shippedAt, o.delivered_at AS deliveredAt,
   (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS itemCount, ${PAYMENT_SQL}`;
 const FROM = `FROM orders o JOIN pharmacies ph ON ph.id = o.pharmacy_id LEFT JOIN invoices i ON i.order_id = o.id`;
@@ -44,10 +45,10 @@ async function findById(id) {
 }
 
 /** Customer places an order. Prices are always re-read from the DB – never trusted from the client. */
-async function create({ pharmacyId, userId, items, notes }) {
+async function create({ pharmacyId, userId, items, paymentMethod, notes }) {
   return withTransaction(async (conn) => {
     const [[pharmacy]] = await conn.query(
-      'SELECT id, status, payment_terms AS paymentTerms, credit_limit AS creditLimit, current_balance AS currentBalance FROM pharmacies WHERE id = ? FOR UPDATE',
+      'SELECT id, status FROM pharmacies WHERE id = ? FOR UPDATE',
       [pharmacyId]);
     if (!pharmacy) throw new ApiError(404, 'Pharmacy account not found');
     if (pharmacy.status !== 'active') throw new ApiError(403, `Your account is ${pharmacy.status}. Orders can only be placed by active accounts.`);
@@ -76,18 +77,13 @@ async function create({ pharmacyId, userId, items, notes }) {
     subtotal = round2(subtotal);
     total = round2(total);
 
-    if (pharmacy.currentBalance + total > pharmacy.creditLimit) {
-      throw new ApiError(422, 'This order would exceed your credit limit', {
-        creditLimit: pharmacy.creditLimit, currentBalance: pharmacy.currentBalance, orderTotal: total,
-      });
-    }
 
-    const initialPaymentStatus = pharmacy.paymentTerms === 'COD' ? 'unpaid' : 'paid';
+    const initialPaymentStatus = paymentMethod === 'COD' ? 'unpaid' : 'paid';
 
     const [res] = await conn.query(
-      `INSERT INTO orders (order_no, pharmacy_id, placed_by, payment_terms, payment_status, subtotal, total, notes)
+      `INSERT INTO orders (order_no, pharmacy_id, placed_by, payment_method, payment_status, subtotal, total, notes)
        VALUES (?,?,?,?,?,?,?,?)`,
-      [`TMP-${crypto.randomBytes(8).toString("hex")}`, pharmacyId, userId, pharmacy.paymentTerms, initialPaymentStatus, subtotal, total, notes || null]);
+      [`TMP-${crypto.randomBytes(8).toString("hex")}`, pharmacyId, userId, paymentMethod, initialPaymentStatus, subtotal, total, notes || null]);
     const orderId = res.insertId;
     await conn.query('UPDATE orders SET order_no = ? WHERE id = ?', [`WO-${String(orderId).padStart(5, '0')}`, orderId]);
     await conn.query('INSERT INTO order_items (order_id, product_id, quantity, unit_price, discount_pct, line_total) VALUES ?',
@@ -126,7 +122,7 @@ async function approve(orderId, adminId) {
       if (need > 0) throw new ApiError(409, `Insufficient stock to approve this order (product #${item.product_id} short by ${need})`);
     }
 
-    const days = TERMS_DAYS[order.payment_terms] ?? 0;
+    const days = TERMS_DAYS[order.payment_method] ?? 0;
     const [inv] = await conn.query(
       `INSERT INTO invoices (invoice_no, order_id, pharmacy_id, amount, issue_date, due_date)
        VALUES (?,?,?,?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL ? DAY))`,
@@ -143,7 +139,7 @@ const STAMP = { in_transit: 'shipped_at', delivered: 'delivered_at' };
 /** Move an order through the pipeline: pending → batching → in_transit → delivered (or cancelled while pending) */
 async function updateStatus(orderId, to, adminId) {
   if (to === 'batching') return approve(orderId, adminId);
-  const [[order]] = await pool.query('SELECT status, payment_terms FROM orders WHERE id = ?', [orderId]);
+  const [[order]] = await pool.query('SELECT status, payment_method FROM orders WHERE id = ?', [orderId]);
   if (!order) throw new ApiError(404, 'Order not found');
   
   if (to === 'cancelled') {
@@ -155,7 +151,7 @@ async function updateStatus(orderId, to, adminId) {
   if (NEXT[order.status] !== to) throw new ApiError(409, `Cannot move an order from ${order.status} to ${to}`);
   
   let extraUpdate = '';
-  if (to === 'delivered' && order.payment_terms === 'COD') {
+  if (to === 'delivered' && order.payment_method === 'COD') {
     extraUpdate = ", payment_status = 'paid'";
   }
 
