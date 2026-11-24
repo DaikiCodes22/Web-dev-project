@@ -8,6 +8,7 @@ const PAYMENT_SQL = `
        WHEN i.due_date < CURDATE() THEN 'overdue' WHEN i.status = 'partial' THEN 'partial' ELSE 'unpaid' END AS paymentStatus,
   DATEDIFF(CURDATE(), i.due_date) AS daysOverdue, DATEDIFF(i.due_date, CURDATE()) AS daysUntilDue, i.due_date AS dueDate,
   i.amount AS invoiceAmount, i.amount_paid AS amountPaid, i.amount - i.amount_paid AS amountDue,
+  i.credited_amount AS refundedAmount,
   i.invoice_no AS invoiceNo`;
 
 const SELECT = `
