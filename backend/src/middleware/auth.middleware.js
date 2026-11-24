@@ -3,7 +3,6 @@ const User = require('../models/user.model');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 
-/** Verifies the Bearer token, then reloads the user so deactivated accounts lose access immediately. */
 const authenticate = asyncHandler(async (req, _res, next) => {
   if (req.user) return next(); // already checked earlier in this request
   const header = req.headers.authorization || '';

@@ -26,6 +26,11 @@ const RULES = [
   ['POST', /^\/settings\/users$/, (m, b) => ({ action: 'user.create', text: `Created a ${clip(b.role, 20)} account for ${clip(b.email, 80)}` })],
   ['PATCH', /^\/settings\/users\/(\d+)$/, (m, b) => ({ action: 'user.update', text: `Updated user #${m[1]}${b.role ? ` (role: ${clip(b.role, 20)})` : ''}${b.isActive === false ? ' (deactivated)' : b.isActive === true ? ' (activated)' : ''}`, entity: ['user', m[1]] })],
   ['POST', /^\/settings\/users\/(\d+)\/reset-password$/, (m) => ({ action: 'user.reset_password', text: `Reset the password of user #${m[1]}`, entity: ['user', m[1]] })],
+  ['POST', /^\/returns$/, () => ({ action: 'order.return_request', text: 'Requested a return' })],
+  ['PATCH', /^\/returns\/(\d+)\/approve$/, (m, b) => ({ action: 'order.return_approve', text: `Approved return #${m[1]}${b.refundAmount !== undefined && b.refundAmount !== '' ? ` (refund ₱${b.refundAmount})` : ''}`, entity: ['return', m[1]] })],
+  ['PATCH', /^\/returns\/(\d+)\/reject$/, (m) => ({ action: 'order.return_reject', text: `Rejected return #${m[1]}`, entity: ['return', m[1]] })],
+  ['POST', /^\/returns\/(\d+)\/receive$/, (m) => ({ action: 'order.return_receive', text: `Received the goods of return #${m[1]} into quarantine`, entity: ['return', m[1]] })],
+  ['POST', /^\/returns\/(\d+)\/resolve$/, (m) => ({ action: 'order.return_resolve', text: `Restocked or disposed quarantined goods of return #${m[1]}`, entity: ['return', m[1]] })],
   ['PATCH', /^\/settings\/profile$/, () => ({ action: 'profile.update', text: 'Updated their own profile' })],
   ['PUT', /^\/settings\/password$/, () => ({ action: 'profile.password', text: 'Changed their own password' })],
 ];
